@@ -40,7 +40,7 @@ def summarize_article(korean_text):
     return summary
 
 @app.post("/uploadfile/", status_code=200)
-async def random_num(image_file: UploadFile = File(...)):
+async def random_num(title: str, summary: str, image_file: UploadFile = File(...)):
     request_json = {
         'images': [
             {
@@ -78,6 +78,11 @@ async def random_num(image_file: UploadFile = File(...)):
     summary = summarize_article(korean_text)
     
     return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "emotion": summary}
+
+@app.post("/test/", status_code=200)
+async def random_num(title: str, summary: str, image_file: UploadFile = File(...)):
+    
+    return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "music": 0}
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000)
