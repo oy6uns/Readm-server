@@ -10,6 +10,9 @@ from fastapi import FastAPI, HTTPException, File, UploadFile
 import uvicorn
 
 import numpy as np
+import pandas as pd
+
+import boto3
 
 app = FastAPI()
 
@@ -18,6 +21,9 @@ openai.api_key = os.getenv('OPENAI_KEY', '')
 api_url = os.getenv('CLOBA_OCR_URL', '')
 secret_key = os.getenv('CLOBA_OCK_KEY', '')
 
+s3 = boto3.client('s3')
+
+# 책에서 추출된 글자를 gpt api로 요약해주는 함수
 def summarize_article(korean_text):
 
     model_engine = "text-davinci-003" 
@@ -36,11 +42,82 @@ def summarize_article(korean_text):
         frequency_penalty=0,
         presence_penalty=0
     )
+
     summary = completion.choices[0].text
     return summary
 
-@app.post("/uploadfile/", status_code=200)
-async def random_num(title: str, summary: str, image_file: UploadFile = File(...)):
+# 제목, 줄거리, 인상깊은 내용을 바탕으로 뮤직 벡터를 추출해주는 함수
+def calculate_music_vector(title, summary, impressive):
+
+    model_engine = "gpt-3.5-turbo" 
+    max_tokens = 2700
+
+    chat_completion = openai.ChatCompletion.create(
+        model=model_engine,
+        messages=[
+            {"role": "system", "content": "당신은 음악 추천 시스템입니다."},
+            {"role": "user", "content": f"{title}책을 읽으면서 음악을 추천 받고 싶어"},
+            {"role": "user", "content": f"{title}는 다음과 같은 줄거리를 가지고 있어: {summary}"},
+            {"role": "user", "content": f"인상 깊은 문장은 이거야: {impressive}"},
+            {"role": "user", "content": "다음 책에서 추천하는 음악이 다음과 같은 라벨이 있다면 각 FEATURE는 어떤 값이 적당할 것 같아? danceability [0,1], energy[0,1], key[0,11], loudness [-30,0], mode [0,1], speechiness[0,1], acousticness[0,1], instrumentalness[0,1], liveness[0,1], valence[0,1], tempo[50,250]"},
+            {"role": "user", "content": '''리스트 형식으로 결과를 출력해줘
+                                            다른 추가적인 text는 없어야해
+                                            EX [0.1, 0.4, 5, -15, 0, 1, 0.75, 0.65, 0.2, 0.5, 75]'''}
+        ],
+        max_tokens=max_tokens,
+        temperature=0.3,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0
+    )
+
+    # 마지막 메시지에서 음악 벡터 추출
+    vector = chat_completion.choices[0].message['content']
+    return vector
+
+def vector_to_music(vector):
+    data = pd.read_csv('music-info.csv')
+
+    list_feature = ['danceability', 'energy', 'key', 'loudness', 'mode', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo']
+    max_feature = [1, 1, 11, 30, 1, 1, 1, 1, 1, 1, 200]
+
+    data['score'] = 0
+
+    print("vector의 길이 및 내용", vector, len(vector))
+
+    for j in range(11):
+        if max_feature[j] != 0:
+            rounded_value = round(abs(data[list_feature[j]] - vector[j]) / max_feature[j], 3)
+            data['score'] += rounded_value
+
+    # 데이터 결측치 및 형변환
+    data['score'] = data['score'].fillna(0)
+    data['score'] = data['score'].astype(float)
+    data_sort = data.sort_values(by='score')
+
+    print("data?:", data_sort)
+    # 가장 score가 높은 index를 반환
+    primary_index = data_sort.iloc[0, 0]
+    print("데이터 sort 값:", primary_index)
+
+    return primary_index
+
+def load_music(index: int):
+    bucket_name = 'readm-bucket'
+    object_key = f'{index}.mp3'
+    music_url = f'https://{bucket_name}.s3.ap-northeast-2.amazonaws.com/{object_key}'
+
+    # 파일 존재 여부 확인
+    try:
+        s3.head_object(Bucket=bucket_name, Key=object_key)
+    except s3.exceptions.NoSuchKey:
+        raise HTTPException(status_code=404, detail=f"No music file found for index: {index}")
+
+    return music_url
+
+# 책 이미지 촬영 시 요약해주는 api 
+@app.post("/ocr-summary/", status_code=200)
+async def random_num(image_file: UploadFile = File(...)):
     request_json = {
         'images': [
             {
@@ -79,11 +156,121 @@ async def random_num(title: str, summary: str, image_file: UploadFile = File(...
     
     return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "emotion": summary}
 
-@app.post("/test/", status_code=200)
+@app.post("/ocr-music-vector/", status_code=201)
 async def random_num(title: str, summary: str, image_file: UploadFile = File(...)):
+    request_json = {
+        'images': [
+            {
+                'format': 'jpg',
+                'name': 'demo'
+            }
+        ],
+        'requestId': str(uuid.uuid4()),  # UUID를 문자열로 변환
+        'version': 'V2',
+        'timestamp': int(round(time.time() * 1000))
+    }
+
+    payload = {'message': json.dumps(request_json).encode('UTF-8')}
+    files = [
+        ('file', (image_file.filename, await image_file.read(), image_file.content_type))
+    ]
+    headers = {
+        'X-OCR-SECRET': secret_key
+    }
+
+    response = requests.request("POST", api_url, headers=headers, data=payload, files=files)
+
+    result = response.json()
+
+    with open('result.json', 'w', encoding='utf-8') as make_file:
+        json.dump(result, make_file, indent="\t", ensure_ascii=False)
+
+    text = ""
+    for field in result['images'][0]['fields']:
+        text += field['inferText']
+
+    # 한글 문자만 추출하는 정규 표현식 사용
+    korean_text = re.sub('[^가-힣]+', ' ', text)
+
+    impressive = summarize_article(korean_text)
+
+    vector_string = calculate_music_vector(title, summary, impressive)
     
-    return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "music": 0}
+    match = re.search(r'\[(.*?)\]', vector_string)
+
+    # 답변 중 배열만을 추출
+    if match:
+        array_str = match.group(1)
+        vector = [float(x) if '.' in x else int(x) for x in array_str.split(',')]
+    else:
+        vector = []
+
+    music_category = ['danceability[0,1]', 'energy[0,1]', 'key[0,11]', 'loudness[-30,0]', 'mode[0,1]', 'speechiness[0,1]', 'acousticness[0,1]', 'instrumentalness[0,1]', 'liveness[0,1]', 'valence[0,1]', 'tempo[50,250]']
+    music_dict = dict(zip(music_category, vector))
+
+    return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "music_vector": music_dict}
+
+@app.post("/ocr-music-url/", status_code=201)
+async def random_num(title: str, summary: str, image_file: UploadFile = File(...)):
+    request_json = {
+        'images': [
+            {
+                'format': 'jpg',
+                'name': 'demo'
+            }
+        ],
+        'requestId': str(uuid.uuid4()),  # UUID를 문자열로 변환
+        'version': 'V2',
+        'timestamp': int(round(time.time() * 1000))
+    } 
+
+    payload = {'message': json.dumps(request_json).encode('UTF-8')}
+    files = [
+        ('file', (image_file.filename, await image_file.read(), image_file.content_type))
+    ]
+    headers = {
+        'X-OCR-SECRET': secret_key
+    }
+
+    response = requests.request("POST", api_url, headers=headers, data=payload, files=files)
+
+    result = response.json()
+
+    with open('result.json', 'w', encoding='utf-8') as make_file:
+        json.dump(result, make_file, indent="\t", ensure_ascii=False)
+
+    text = ""
+    for field in result['images'][0]['fields']:
+        text += field['inferText']
+
+    # 한글 문자만 추출하는 정규 표현식 사용
+    korean_text = re.sub('[^가-힣]+', ' ', text)
+
+    impressive = summarize_article(korean_text)
+
+    # 2/3 길이에 해당하는 부분 문자열 추출
+    length = len(summary)
+    cut_length = int(length * 2 / 3)
+    shortened_summary = summary[:cut_length]
+
+    vector_string = calculate_music_vector(title, shortened_summary, impressive)
+    
+    match = re.search(r'\[(.*?)\]', vector_string)
+
+    # 답변 중 배열만을 추출
+    if match:
+        array_str = match.group(1)
+        vector = [float(x) if '.' in x else int(x) for x in array_str.split(',')]
+    else:
+        vector = []
+
+    music_index = int(vector_to_music(vector))
+    music = load_music(music_index)
+
+    return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "music": music}
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000)
-
+    try:
+        uvicorn.run("app:app", host="0.0.0.0", port=8000)
+    except Exception as e:
+        print(f"An error occurred: {e}")
