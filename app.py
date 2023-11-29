@@ -61,6 +61,7 @@ def calculate_music_vector(title, summary, impressive):
             {"role": "user", "content": f"인상 깊은 문장은 이거야: {impressive}"},
             {"role": "user", "content": "다음 책에서 추천하는 음악이 다음과 같은 라벨이 있다면 각 FEATURE는 어떤 값이 적당할 것 같아? danceability [0,1], energy[0,1], key[0,11], loudness [-30,0], mode [0,1], speechiness[0,1], acousticness[0,1], instrumentalness[0,1], liveness[0,1], valence[0,1], tempo[50,250]"},
             {"role": "user", "content": '''리스트 형식으로 결과를 출력해줘
+                                            그리고 배열의 길이는 무조건 아래의 예시와 같이 11이어야 해. 중요해.
                                             다른 추가적인 text는 없어야해
                                             EX [0.1, 0.4, 5, -15, 0, 1, 0.75, 0.65, 0.2, 0.5, 75]'''}
         ],
