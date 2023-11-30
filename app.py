@@ -6,7 +6,7 @@ import json
 import re
 import os
 
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 import uvicorn
 
 import numpy as np
@@ -212,7 +212,11 @@ async def random_num(title: str, summary: str, image_file: UploadFile = File(...
     return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "music_vector": music_dict}
 
 @app.post("/ocr-music-url/", status_code=201)
-async def random_num(title: str, summary: str, image_file: UploadFile = File(...)):
+async def image_to_music(
+    title: str = Form(...), 
+    summary: str = Form(...), 
+    image_file: UploadFile = File(...)
+):
     request_json = {
         'images': [
             {
