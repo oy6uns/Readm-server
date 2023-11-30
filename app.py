@@ -55,15 +55,14 @@ def calculate_music_vector(title, summary, impressive):
     chat_completion = openai.ChatCompletion.create(
         model=model_engine,
         messages=[
-            {"role": "system", "content": "당신은 음악 추천 시스템입니다."},
+            {"role": "system", "content": '''당신은 각 책의 독특한 감정적 분위기, 테마, 캐릭터의 복잡성, 장면의 세부 묘사, 그리고 작가의 문체를 깊이 이해하고 이를 기반으로 음악을 추천하는 고도로 발전된 시스템입니다. 
+                                            책의 제목, 줄거리 요약, 그리고 인상 깊은 문장을 통해 책의 핵심 감정과 테마를 파악하고, 이를 반영한 독특하고 맞춤형의 음악 특성 벡터를 생성하세요. 
+                                            각 책의 독특한 요소들을 고려하여 'danceability', 'energy', 'key', 'loudness', 'mode', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo' 등의 음악적 특성이 어떻게 변화해야 하는지 분석해주세요. '''},
             {"role": "user", "content": f"{title}책을 읽으면서 음악을 추천 받고 싶어"},
             {"role": "user", "content": f"{title}는 다음과 같은 줄거리를 가지고 있어: {summary}"},
             {"role": "user", "content": f"인상 깊은 문장은 이거야: {impressive}"},
-            {"role": "user", "content": "다음 책에서 추천하는 음악이 다음과 같은 라벨이 있다면 각 FEATURE는 어떤 값이 적당할 것 같아? danceability [0,1], energy[0,1], key[0,11], loudness [-30,0], mode [0,1], speechiness[0,1], acousticness[0,1], instrumentalness[0,1], liveness[0,1], valence[0,1], tempo[50,250]"},
-            {"role": "user", "content": '''리스트 형식으로 결과를 출력해줘
-                                            그리고 배열의 길이는 무조건 아래의 예시와 같이 11이어야 해. 중요해.
-                                            다른 추가적인 text는 없어야해
-                                            EX [0.1, 0.4, 5, -15, 0, 1, 0.75, 0.65, 0.2, 0.5, 75]'''}
+            {"role": "user", "content": "음악의 특성은 다음과 같은 범위 내에서 수치화해야 합니다: 'danceability' [0,1], 'energy' [0,1], 'key' [0,11], 'loudness' [-30,0], 'mode' [0,1], 'speechiness' [0,1], 'acousticness' [0,1], 'instrumentalness' [0,1], 'liveness' [0,1], 'valence' [0,1], 'tempo' [50,250]."},
+            {"role": "user", "content": f"이 분석을 바탕으로, 각 책에 대한 음악적 분위기를 가장 잘 반영하는 1차원 실수 벡터 배열을 생성하여 제공해주세요. 배열은 총 11개의 요소를 포함해야 하며, 각 책에 따라 특성 값이 상당히 달라져야 합니다. 추가적인 텍스트 없이 값들만 대괄호 안에 쉼표로 구분되어 표현되어야 합니다."},
         ],
         max_tokens=max_tokens,
         temperature=0.3,
@@ -74,6 +73,7 @@ def calculate_music_vector(title, summary, impressive):
 
     # 마지막 메시지에서 음악 벡터 추출
     vector = chat_completion.choices[0].message['content']
+    print("vector입니다:", vector)
     return vector
 
 def vector_to_music(vector):
@@ -87,7 +87,7 @@ def vector_to_music(vector):
     print("vector의 길이 및 내용", vector, len(vector))
 
     for j in range(11):
-        if max_feature[j] != 0:
+        if max_feature[j] != 0: 
             rounded_value = round(abs(data[list_feature[j]] - vector[j]) / max_feature[j], 3)
             data['score'] += rounded_value
 
@@ -251,7 +251,7 @@ async def random_num(title: str, summary: str, image_file: UploadFile = File(...
 
     # 2/3 길이에 해당하는 부분 문자열 추출
     length = len(summary)
-    cut_length = int(length * 2 / 3)
+    cut_length = int(length * (2 / 3))
     shortened_summary = summary[:cut_length]
 
     vector_string = calculate_music_vector(title, shortened_summary, impressive)
@@ -261,7 +261,7 @@ async def random_num(title: str, summary: str, image_file: UploadFile = File(...
     # 답변 중 배열만을 추출
     if match:
         array_str = match.group(1)
-        vector = [float(x) if '.' in x else int(x) for x in array_str.split(',')]
+        vector = [float(x) if '.' in x else float(x) for x in array_str.split(',')]
     else:
         vector = []
 
