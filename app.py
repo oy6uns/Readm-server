@@ -253,12 +253,12 @@ async def image_to_music(
 
     impressive = summarize_article(korean_text)
 
-    # 2/3 길이에 해당하는 부분 문자열 추출
+    # 500 길이에 해당하는 부분 문자열 추출
     length = len(summary)
-    cut_length = int(length * (2 / 3))
-    shortened_summary = summary[:cut_length]
+    if length > 500:
+        summary = summary[:500]
 
-    vector_string = calculate_music_vector(title, shortened_summary, impressive)
+    vector_string = calculate_music_vector(title, summary, impressive)
     
     match = re.search(r'\[(.*?)\]', vector_string)
 
@@ -272,7 +272,7 @@ async def image_to_music(
     music_index = int(vector_to_music(vector))
     music = load_music(music_index)
 
-    return {"statusCode": 201, "success": True, "message":"File uploaded successfully", "music": music}
+    return {"music": music}
 
 if __name__ == "__main__":
     try:
