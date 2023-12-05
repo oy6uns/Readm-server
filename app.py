@@ -255,8 +255,8 @@ async def image_to_music(
 
     # 500 길이에 해당하는 부분 문자열 추출
     length = len(summary)
-    if length > 500:
-        summary = summary[:500]
+    if length > 400:
+        summary = summary[:400]
 
     vector_string = calculate_music_vector(title, summary, impressive)
     
